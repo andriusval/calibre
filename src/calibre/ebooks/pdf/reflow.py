@@ -52,8 +52,6 @@ HYPHEN_JOIN = '\x01'
 # A line that ends with a hyphen after a letter, and one that starts with a
 # lowercase letter, can be the two parts of a word
 SPLIT_WORD_START = re.compile(r'[^\W\d_][-\u2010]$')
-# The start of a line that repeats the hyphen of a word wrapped at its hyphen, as in Polish
-REPEATED_HYPHEN = re.compile(r'^((?:<[^>]*>)*)[-\u2010](?=[^\W\d_])')
 # The two parts of a word split at a hyphen, and any markup in between
 SPLIT_WORD = re.compile(r'(\w+)([-\u2010])((?:<[^>]*>)*)' + HYPHEN_JOIN + r'((?:<[^>]*>)*)(\w+)')
 WORD = re.compile(r'\w+(?:[-\u2010]\w+)*')
@@ -65,6 +63,8 @@ HYPHEN_AT_JOIN = re.compile(r'([-\u2010]?)((?:<[^>]*>)*)' + HYPHEN_JOIN)
 # document, if it recognises at least this fraction of the most common words of
 # the document, as that means the document is in its language
 DICTIONARY_MIN_RECOGNIZED = 0.8
+# The start of a line that repeats the hyphen of a word wrapped at its hyphen, as in Polish
+REPEATED_HYPHEN = re.compile(r'^((?:<[^>]*>)*)[-\u2010](?=[^\W\d_])')
 #### Large initial letters
 # A large initial letter, or drop cap, is at least this many times the size
 # of the text after it, which it is joined to without a space if it starts the
