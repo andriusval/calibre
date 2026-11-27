@@ -589,16 +589,33 @@ class TestPageBoundaries(unittest.TestCase):
         self.assertIn(' and emailed ', html)
         self.assertIn(' and <i>some</i>unusualword ', html)
 
+    def test_page_scans_of_searchable_pdfs_are_skipped(self) -> None:
+        from calibre.ebooks.pdf.reflow import Page
+        from calibre.utils.logging import default_log
+        from calibre.utils.xml_parse import safe_xml_fromstring
+
+        xml = ('<page number="1" top="0" left="0" height="800" width="600"><text top="100" left="50" width="300" height="12">Some text</text>'
+               '<image top="0" left="0" width="600" height="800" src="scan.png"/><image top="300" left="50" width="200" height="100" src="figure.png"/></page>')
+        opts = Opts()
+        opts.no_images = False
+        for skip, expected in ((False, ['scan.png', 'figure.png']), (True, ['figure.png'])):
+            page = Page(safe_xml_fromstring(xml), {}, opts, default_log, iter(range(100)), skip)
+            self.assertEqual([img.src for img in page.imgs], expected)
+
     def test_split_words_in_the_text_of_ocr_programs(self) -> None:
         # OCR programs, such as ABBYY FineReader, end lines with a soft hyphen, or with spaces after the hyphen
         page = self.body_lines(150, 3, label='surrounding text with kriaučius in it ')
         page += [(337, 300, 1100, f'{self.BODY} and per\u00ad', 0), (337, 335, 1100, f'sekiojimai {self.BODY} again.', 0), (337, 370, 500, 'The end.', 0)]
         page += [(337, 450, 1100, f'{self.BODY} and kriau- ', 0), (337, 485, 1100, f'čius {self.BODY} again.', 0), (337, 520, 500, 'The end.', 0)]
         page += [(337, 600, 1100, f'{self.BODY} and Valančius- ', 0), (337, 635, 1100, f'Žemaičių {self.BODY} again.', 0), (337, 670, 500, 'The end.', 0)]
+        page += [(337, 750, 1100, f'{self.BODY} and pre- ', 0), (337, 785, 1100, f'and post-war {self.BODY} again.', 0), (337, 820, 500, 'The end.', 0)]
+        page += [(337, 900, 1100, f'{self.BODY} and <i>kriau-</i> ', 0), (337, 935, 1100, f'čius {self.BODY} again.', 0), (337, 970, 500, 'The end.', 0)]
         html = self.convert([page])
         self.assertIn(' and persekiojimai ', html)
         self.assertIn(' and kriaučius ', html)
         self.assertIn(' and Valančius- Žemaičių ', html)
+        self.assertIn(' and pre- and post-war ', html)
+        self.assertIn(' and <i>kriau</i>čius ', html)
         self.assertNotIn('\u00ad', html)
 
     def test_hyphen_in_overlapping_parts_of_a_line_is_kept(self) -> None:

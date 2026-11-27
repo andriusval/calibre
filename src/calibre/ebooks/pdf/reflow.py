@@ -51,17 +51,16 @@ REPEATED_HEAD_MAX_DISTANCE = 2
 HYPHEN_JOIN = '\x01'
 # A line that ends with a hyphen after a letter, and one that starts with a
 # lowercase letter, can be the two parts of a word
-SPLIT_WORD_START = re.compile(r'[^\W\d_][-\u2010\u00ad]$')
-# A hyphen at the end of a line followed by spaces, as OCR programs output
-HYPHEN_THEN_SPACE_AT_END = re.compile(r'(?<=[^\W\d_][-\u2010\u00ad])\s+((?:<[^>]*>)*)$')
+# The text of OCR programs can have spaces after the hyphen, which stay if the hyphen is kept
+SPLIT_WORD_START = re.compile(r'[^\W\d_][-\u2010\u00ad] *$')
 SOFT_HYPHEN = '\u00ad'
 # The two parts of a word split at a hyphen, and any markup in between
-SPLIT_WORD = re.compile(r'(\w+)([-\u2010\u00ad])((?:<[^>]*>)*)' + HYPHEN_JOIN + r'((?:<[^>]*>)*)(\w+)')
+SPLIT_WORD = re.compile(r'(\w+)([-\u2010\u00ad]) *((?:<[^>]*>)*) *' + HYPHEN_JOIN + r'((?:<[^>]*>)*)(\w+)')
 WORD = re.compile(r'\w+(?:[-\u2010]\w+)*')
 # Every mark, with the parts of the word split there if they are words
-SPLIT_WORD_AT_JOIN = re.compile(r'(\w+)?([-\u2010\u00ad])?((?:<[^>]*>)*)' + HYPHEN_JOIN + r'((?:<[^>]*>)*)(\w+)?')
+SPLIT_WORD_AT_JOIN = re.compile(r'(\w+)?([-\u2010\u00ad])? *((?:<[^>]*>)*) *' + HYPHEN_JOIN + r'((?:<[^>]*>)*)(\w+)?')
 # The hyphen before a mark, and any markup in between
-HYPHEN_AT_JOIN = re.compile(r'([-\u2010\u00ad]?)((?:<[^>]*>)*)' + HYPHEN_JOIN)
+HYPHEN_AT_JOIN = re.compile(r'([-\u2010\u00ad]?)( *)((?:<[^>]*>)*)( *)' + HYPHEN_JOIN)
 # A spelling dictionary is used for words that are not found elsewhere in the
 # document, if it recognises at least this fraction of the most common words of
 # the document, as that means the document is in its language
@@ -265,7 +264,8 @@ def resolve_hyphen_joins(text: str, keep: Sequence[bool]) -> str:
     decisions = iter(keep)
 
     def sub(m: re.Match[str]) -> str:
-        return (m.group(1) if next(decisions, True) else '') + m.group(2)
+        # A removed hyphen takes the spaces after it, so that the parts of the word join
+        return m.group(1) + m.group(2) + m.group(3) + m.group(4) if next(decisions, True) else m.group(3)
 
     return HYPHEN_AT_JOIN.sub(sub, text)
 
@@ -633,10 +633,6 @@ class Text(Element):
         self.font_size_em = max(self.font_size_em, other.font_size_em)
         self.monospace = self.monospace and other.monospace
         self.font = other.font
-        if (not same_line or wraps) and other.text_as_string[:1].islower():
-            # The text of OCR programs can have spaces after the hyphen at the end of a line
-            self.text_as_string = HYPHEN_THEN_SPACE_AT_END.sub(r'\1', self.text_as_string)
-            self.raw = HYPHEN_THEN_SPACE_AT_END.sub(r'\1', self.raw)
         if has_gap > 0:
             if has_gap < 3:  # Small number of spaces = 1 space
                 if not (
@@ -1101,7 +1097,7 @@ class Region:
 
 
 class Page:
-    def __init__(self, page: _Element, font_map: FontMap, opts: Values, log: Log, idc: Iterator[int]) -> None:
+    def __init__(self, page: _Element, font_map: FontMap, opts: Values, log: Log, idc: Iterator[int], skip_page_scans: bool = False) -> None:
         def text_cmp(first: Text, second: Text) -> int:
             # Compare 2 text objects.
             # Order by line (top/bottom) then left
@@ -1197,7 +1193,11 @@ class Page:
         # These can be interspersed with text
         if not self.opts.no_images:
             for img in page.xpath('descendant::image'):
-                self.imgs.append(Image(img, self.width, self.height, self.opts, self.log, idc))
+                image = Image(img, self.width, self.height, self.opts, self.log, idc)
+                # The scanned page under the OCR text of a searchable PDF would repeat the page as a picture
+                if skip_page_scans and self.texts and image.width >= 0.9 * self.width and image.height >= 0.9 * self.height:
+                    continue
+                self.imgs.append(image)
 
         self.textwidth = self.right_margin - self.left_margin
 
@@ -2289,7 +2289,7 @@ class Page:
 
 
 class PDFDocument:
-    def __init__(self, xml: bytes, opts: Values, log: Log, pdf_path: str = '') -> None:
+    def __init__(self, xml: bytes, opts: Values, log: Log, pdf_path: str = '', skip_page_scans: bool = False) -> None:
         from calibre.utils.xml_parse import safe_xml_fromstring
         # from calibre.rpdb import set_trace;  set_trace()
 
@@ -2319,7 +2319,7 @@ class PDFDocument:
 
         self.pages: list[Page] = []
         for page in self.root.xpath('//page'):
-            page = Page(page, self.font_map, opts, log, idc)
+            page = Page(page, self.font_map, opts, log, idc, skip_page_scans)
             self.pages.append(page)
 
         self.tops: dict[float, int] = {}
@@ -2831,7 +2831,7 @@ class PDFDocument:
         counts: dict[str, int] = {}
         for page in self.pages:
             for t in page.texts:
-                for word in WORD.findall(SPLIT_WORD.sub(' ', t.text_as_string)):
+                for word in WORD.findall(SPLIT_WORD.sub(' ', t.text_as_string).replace(SOFT_HYPHEN, '')):
                     word = word.lower()
                     counts[word] = counts.get(word, 0) + 1
         decisions: dict[tuple[str, str], bool] = {}

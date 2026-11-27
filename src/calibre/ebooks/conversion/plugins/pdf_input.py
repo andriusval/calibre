@@ -90,10 +90,10 @@ class PDFInput(InputFormatPlugin):
             from calibre.ebooks.pdf.reflow import PDFDocument
             from calibre.utils.cleantext import clean_ascii_chars
 
-            pdftohtml(os.getcwd(), stream.name, self.opts.no_images, as_xml=True)
+            searchable = pdftohtml(os.getcwd(), stream.name, self.opts.no_images, as_xml=True)
             with open('index.xml', 'rb') as f:
                 xml = clean_ascii_chars(f.read())
-            PDFDocument(xml, self.opts, self.log, stream.name)
+            PDFDocument(xml, self.opts, self.log, stream.name, skip_page_scans=searchable)
         else:
             pdftohtml(os.getcwd(), stream.name, options.no_images)
 

@@ -41,30 +41,45 @@ if bbd := bundled_binaries_dir():
 PDFTOTEXT = os.path.join(os.path.dirname(PDFTOHTML), 'pdftotext' + ('.exe' if iswindows else ''))
 
 
-def has_visible_text(pdf_path: str) -> bool:
-    # Searchable PDFs made by OCR programs, such as ABBYY FineReader or
-    # OCRmyPDF, have only invisible text over the scanned pages, which
-    # pdftohtml leaves out unless it is given -hidden. The check is fast as it
-    # extracts no images.
+# Pages that the check for a searchable PDF reads; they are enough to tell, and a large book stays fast
+SEARCHABLE_PDF_SAMPLE_PAGES = 30
+
+
+def text_stats(pdf_path: str, hidden: bool) -> tuple[int, int, int] | None:
+    # The number of pages, of pages with text, and of letters of text, without the extraction of images
     with TemporaryDirectory('_pdftohtml_probe') as tdir:
         out = os.path.join(tdir, 'probe.xml')
-        cmd = [PDFTOHTML, '-enc', 'UTF-8', '-xml', '-i', '-q', '-nodrm', pdf_path, out]
+        cmd = [PDFTOHTML, '-enc', 'UTF-8', '-xml', '-i', '-q', '-nodrm', '-l', str(SEARCHABLE_PDF_SAMPLE_PAGES), pdf_path, out]
         if isbsd:
             cmd.remove('-nodrm')
+        if hidden:
+            cmd.insert(1, '-hidden')
         try:
             p = popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.PIPE)
         except OSError:
-            return True
-        eintr_retry_call(p.wait)
+            return None
+        if eintr_retry_call(p.wait) != 0:
+            return None
         try:
             with open(out, 'rb') as f:
                 raw = f.read()
         except OSError:
-            return True
-    return re.search(rb'<text[^>]*>(?:<[^>]*>)*\s*[^<\s]', raw) is not None
+            return None
+    pages = re.split(rb'<page\b', raw)[1:]
+    letters = [sum(len(re.sub(rb'<[^>]*>|\s', b'', t)) for t in re.findall(rb'<text[^>]*>(.*?)</text>', page, re.S)) for page in pages]
+    return len(pages), sum(1 for n in letters if n), sum(letters)
 
 
-def pdftohtml(output_dir: str, pdf_path: str, no_images: bool, as_xml: bool = False) -> None:
+def has_visible_text(pdf_path: str) -> bool:
+    # A searchable PDF has invisible text on most pages, and visible text such as page numbers is a small part of it
+    hidden = text_stats(pdf_path, True)
+    if hidden is None or not hidden[2] or hidden[1] < 0.5 * hidden[0]:
+        return True
+    visible = text_stats(pdf_path, False)
+    return visible is None or visible[2] >= 0.1 * hidden[2]
+
+
+def pdftohtml(output_dir: str, pdf_path: str, no_images: bool, as_xml: bool = False) -> bool:
     """
     Convert the pdf into html using the pdftohtml app.
     This will write the html as index.html into output_dir.
@@ -91,7 +106,8 @@ def pdftohtml(output_dir: str, pdf_path: str, no_images: bool, as_xml: bool = Fa
             cmd.append('-i')
         if as_xml:
             cmd.append('-xml')
-        if not has_visible_text(a(pdfsrc)):
+        searchable = not has_visible_text(a(pdfsrc))
+        if searchable:
             cmd.append('-hidden')
 
         logf = PersistentTemporaryFile('pdftohtml_log')
@@ -166,6 +182,7 @@ def pdftohtml(output_dir: str, pdf_path: str, no_images: bool, as_xml: bool = Fa
             os.remove(pdfsrc)
         except Exception:
             pass
+    return searchable
 
 
 def resolve_outline_pages(outline: _Element, pdf_path: str, report: Callable[[str], object]) -> None:
