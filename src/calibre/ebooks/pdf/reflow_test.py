@@ -583,8 +583,10 @@ class TestPageBoundaries(unittest.TestCase):
         page = self.body_lines(150, 3, label='surrounding text ')
         page += [(337, 300, 1100, f'{self.BODY} and biało-', 0), (337, 335, 1100, f'-czerwony {self.BODY} again.', 0), (337, 370, 500, 'The end.', 0)]
         page += [(337, 450, 1100, f'{self.BODY} and <i>well-</i>', 0), (337, 485, 1100, f'<i>-known</i> {self.BODY} again.', 0), (337, 520, 500, 'The end.', 0)]
+        page += [(337, 600, 1100, f'{self.BODY} and białe- ', 0), (337, 635, 1100, f'-zielone {self.BODY} again.', 0), (337, 670, 500, 'The end.', 0)]
         html = self.convert([page])
         self.assertIn(' and biało-czerwony ', html)
+        self.assertIn(' and białe-zielone ', html)  # OCR programs can add spaces after the first hyphen
         self.assertIn(' and <i>well-known</i> ', html)
         self.assertNotIn('--', html)
 

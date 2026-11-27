@@ -65,6 +65,9 @@ HYPHEN_AT_JOIN = re.compile(r'([-\u2010]?)((?:<[^>]*>)*)' + HYPHEN_JOIN)
 DICTIONARY_MIN_RECOGNIZED = 0.8
 # The start of a line that repeats the hyphen of a word wrapped at its hyphen, as in Polish
 REPEATED_HYPHEN = re.compile(r'^((?:<[^>]*>)*)[-\u2010](?=[^\W\d_])')
+# The end of a line before such a line; OCR programs can add spaces after the hyphen, which then go
+REPEATED_HYPHEN_END = re.compile(r'(?<=[^\W\d_][-\u2010]) +$')
+REPEATED_HYPHEN_END_RAW = re.compile(r'(?<=[-\u2010])((?:<[^>]*>)*) +((?:<[^>]*>)*)$')
 #### Large initial letters
 # A large initial letter, or drop cap, is at least this many times the size
 # of the text after it, which it is joined to without a space if it starts the
@@ -686,12 +689,17 @@ class Text(Element):
         # next to a large initial letter are joined as parts of its line, but
         # each starts back at the left.
         line_end_hyphen = (not same_line or wraps) and SPLIT_WORD_START.search(self.text_as_string) is not None
-        if line_end_hyphen and REPEATED_HYPHEN.match(other.text_as_string) is not None:
+        if (
+            (line_end_hyphen or ((not same_line or wraps) and REPEATED_HYPHEN_END.search(self.text_as_string) is not None))
+            and REPEATED_HYPHEN.match(other.text_as_string) is not None
+        ):
             # A hyphenated word wrapped at its hyphen, with the hyphen repeated on the next line, keeps one hyphen
             raw, n = REPEATED_HYPHEN.subn(r'\1', other.raw, count=1)
             if n:
                 other.raw = raw
                 other.text_as_string = REPEATED_HYPHEN.sub(r'\1', other.text_as_string, count=1)
+                self.text_as_string = REPEATED_HYPHEN_END.sub('', self.text_as_string)
+                self.raw = REPEATED_HYPHEN_END_RAW.sub(r'\1\2', self.raw)
                 line_end_hyphen = False
         split_word = line_end_hyphen and other.text_as_string[:1].islower()
         if split_word:
